@@ -89,34 +89,29 @@ local function getNearestNPC()
 	return nearestNPC
 end
 
--- Функция атаки (удары руками на ЛКМ или оружием без физической мыши)
+-- Безопасная функция удара ТОЛЬКО через ЛКМ (без взаимодействия со слотами)
 local function doLMBAttack()
 	local myChar = LocalPlayer.Character
 	if not myChar then return end
 
-	-- 1. Экипировка предмета (если есть в инвентаре)
+	-- Активация предмета, который УЖЕ находится в руках
 	local tool = myChar:FindFirstChildOfClass("Tool")
-	if not tool then
-		local backpack = LocalPlayer:FindFirstChild("Backpack")
-		if backpack then
-			tool = backpack:FindFirstChildOfClass("Tool")
-			local hum = myChar:FindFirstChildOfClass("Humanoid")
-			if tool and hum then
-				hum:EquipTool(tool)
-			end
-		end
-	end
-
-	-- Активация инструмента
 	if tool then
-		tool:Activate()
+		pcall(function()
+			tool:Activate()
+		end)
 	end
 
-	-- 2. Виртуальное нажатие ЛКМ (для ударов руками / кулаками)
+	-- Эмуляция клика ЛКМ (в точку текущего курсора мыши)
 	pcall(function()
-		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-		task.wait(0.01)
-		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+		if mouse1click then
+			mouse1click()
+		else
+			local mousePos = UserInputService:GetMouseLocation()
+			VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, true, game, 0)
+			task.wait(0.01)
+			VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, false, game, 0)
+		end
 	end)
 end
 
@@ -143,7 +138,7 @@ end
 --------------------------------------------------------------------------------
 -- 3. ЦИКЛ АВТОФАРМА И КИЛЛАУРЫ
 --------------------------------------------------------------------------------
--- Цикл Автофарма над НПС в воздухе (Авто-удар руками / ЛКМ)
+-- Цикл Автофарма
 task.spawn(function()
 	while true do
 		task.wait(0.05)
@@ -160,10 +155,10 @@ task.spawn(function()
 					myHrp.CFrame = CFrame.lookAt(targetPos, targetHrp.Position)
 					myHrp.AssemblyLinearVelocity = Vector3.zero
 
-					-- Автоматический удар руками на ЛКМ (без клавиши 1)
+					-- Атака исключительно ЛКМ
 					doLMBAttack()
 
-					-- Навыки R и K (если включены в настройках)
+					-- Дополнительные клавиши R и K (если включены пользователем)
 					if Settings.KillAuraKeyR then pressVirtualKey(Enum.KeyCode.R) end
 					if Settings.KillAuraKeyK then pressVirtualKey(Enum.KeyCode.K) end
 				end
@@ -191,7 +186,7 @@ task.spawn(function()
 							myHrp.CFrame = CFrame.lookAt(myHrp.Position, lookTarget)
 						end
 
-						-- Автоматический удар руками на ЛКМ
+						-- Атака исключительно ЛКМ
 						doLMBAttack()
 
 						if Settings.KillAuraKeyR then pressVirtualKey(Enum.KeyCode.R) end
@@ -342,7 +337,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, -110, 1, 0)
 titleText.Position = UDim2.new(0, 14, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "🌾 фармилка cnsd [v3.1]"
+titleText.Text = "🌾 фармилка cnsd [v3.3]"
 titleText.TextColor3 = Color3.fromRGB(240, 240, 255)
 titleText.TextSize = 14
 titleText.Font = Enum.Font.GothamBold
@@ -645,7 +640,7 @@ local visualPage = createTab("Кастомизация UI", "🎨", 4)
 local keybindPage = createTab("Keybind", "⌨️", 5)
 
 -- ВКЛАДКА 1: АВТОФАРМ
-createToggle(farmPage, "🌾 Автофарм (Удары руками на ЛКМ)", Settings.AutoFarm, function(state) Settings.AutoFarm = state end)
+createToggle(farmPage, "🌾 Автофарм (Строго ЛКМ)", Settings.AutoFarm, function(state) Settings.AutoFarm = state end)
 createSliderWithInput(farmPage, "Высота над НПС (студы)", Settings.FarmHeight, 4, 30, function(v) Settings.FarmHeight = v end)
 createToggle(farmPage, "🛡️ Полный GodMode (НПС не бьют)", Settings.GodMode, function(state)
 	Settings.GodMode = state
