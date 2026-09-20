@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -110,7 +109,7 @@ local function getNPCsInRange(maxDistance)
 	return inRange
 end
 
--- Безопасная фоновая атака без использования мыши
+-- Полностью независимая атака без использования виртуальной или реальной мыши
 local function doLMBAttack()
 	local myChar = LocalPlayer.Character
 	if not myChar then return end
@@ -121,23 +120,27 @@ local function doLMBAttack()
 		pcall(function()
 			tool:Activate()
 		end)
-	end
 
-	-- 2. Фоновый виртуальный клик ЛКМ (не затрагивает реальную мышь игрока)
-	pcall(function()
-		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-		task.wait(0.01)
-		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-	end)
+		-- 2. Прямой вызов внутренних RemoteEvent оружия (для игр с кастомной системой боя)
+		for _, v in ipairs(tool:GetDescendants()) do
+			if v:IsA("RemoteEvent") then
+				pcall(function() v:FireServer() end)
+			end
+		end
+	end
 end
 
--- Виртуальное нажатие клавиши навыка
+-- Виртуальный вызов навыка без перехвата ввода
 local function pressVirtualKey(keyCode)
-	pcall(function()
-		VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-		task.wait(0.02)
-		VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-	end)
+	local myChar = LocalPlayer.Character
+	if not myChar then return end
+
+	-- Отправка сигнала в RemoteEvent персонажа/оружия для скиллов
+	for _, v in ipairs(myChar:GetDescendants()) do
+		if v:IsA("RemoteEvent") and (v.Name:lower():find("skill") or v.Name:lower():find("ability") or v.Name:lower():find(keyCode.Name:lower())) then
+			pcall(function() v:FireServer() end)
+		end
+	end
 end
 
 -- Защита от касаний НПС
@@ -152,7 +155,7 @@ local function updateGodMode()
 end
 
 --------------------------------------------------------------------------------
--- 3. ЦИКЛЫ АВТОФАРМА И КИЛЛАУРЫ (С ЧИСТЫМ СБРОСОМ СОСТОЯНИЯ)
+-- 3. ЦИКЛЫ АВТОФАРМА И КИЛЛАУРЫ
 --------------------------------------------------------------------------------
 -- Стабильный цикл Автофарма
 task.spawn(function()
@@ -176,7 +179,7 @@ task.spawn(function()
 					myHrp.CFrame = CFrame.lookAt(targetPos, targetHrp.Position)
 					myHrp.AssemblyLinearVelocity = Vector3.zero
 
-					-- Атака
+					-- Безопасная атака без курсора
 					doLMBAttack()
 
 					if Settings.KillAuraKeyR then pressVirtualKey(Enum.KeyCode.R) end
@@ -184,16 +187,15 @@ task.spawn(function()
 				end
 			end
 		else
-			-- Блок очистки при выключении (гарантирует отсутствие багов и застреваний)
+			-- Сброс физики при выключении
 			if wasFarming then
 				wasFarming = false
 				local myChar = LocalPlayer.Character
 				if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-					-- Сброс скорости, чтобы персонаж восстановил нормальную физику
 					myChar.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, -1, 0)
 				end
 			end
-			task.wait(0.1) -- Экономия ресурсов процессора, когда фарм отключен
+			task.wait(0.1)
 		end
 	end
 end)
@@ -374,7 +376,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, -110, 1, 0)
 titleText.Position = UDim2.new(0, 14, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "🌾 фармилка cnsd [v3.7 Safe-Toggle]"
+titleText.Text = "фармилка cnsd v3.8"
 titleText.TextColor3 = Color3.fromRGB(240, 240, 255)
 titleText.TextSize = 14
 titleText.Font = Enum.Font.GothamBold
