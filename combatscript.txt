@@ -1,6 +1,3 @@
-Вот единый полный скрипт в одном блоке кода:
-
-```lua
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -858,5 +855,3 @@ UserInputService.InputChanged:Connect(function(input)
 		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 	end
 end)
-
-```
