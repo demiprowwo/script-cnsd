@@ -682,6 +682,7 @@ local keybindPage = createTab("Keybind", "⌨️", 5)
 createToggle(farmPage, "🌾 Включить Автофарм", Settings.AutoFarm, function(state) Settings.AutoFarm = state end)
 createSliderWithInput(farmPage, "Высота над НПС (студы)", Settings.FarmHeight, 2, 20, function(v) Settings.FarmHeight = v end)
 createSliderWithInput(farmPage, "Радиус AOE Атаки", Settings.AOERange, 10, 150, function(v) Settings.AOERange = v end)
+createToggle(farmPage, "🛡️ Полный GodMode (НПС не бьют)", Settings.GodMode, function(state)
 	Settings.GodMode = state
 	updateGodMode()
 end)
