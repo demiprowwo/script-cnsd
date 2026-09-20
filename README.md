@@ -1,1 +1,824 @@
-# script-cnsd
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+--------------------------------------------------------------------------------
+-- 1. НАСТРОЙКИ СТАРТОВЫХ ПАРАМЕТРОВ
+--------------------------------------------------------------------------------
+local Settings = {
+	-- Автофарм
+	AutoFarm = false,
+	FarmHeight = 8,               -- Высота зависания над НПС (в студах)
+	
+	-- Атака и Киллаура
+	KillAura = false,
+	KillAuraAutoAim = true,       -- Авто-наведение
+	KillAuraRange = 50,           -- Радиус
+	
+	-- Виртуальные навыки
+	KillAuraKeyR = false,         -- Нажимать R
+	KillAuraKeyK = false,         -- Нажимать K
+	
+	-- Защита от урона
+	GodMode = true,               -- Защита от касаний/ударов НПС
+	
+	-- Кастомизация UI
+	BgColorR = 16,
+	BgColorG = 16,
+	BgColorB = 26,
+	BgTransparency = 0,
+	IsFullscreen = false,
+	MenuKey = Enum.KeyCode.LeftControl,
+
+	-- Движение и ESP
+	FlyActive = false,
+	FlySpeed = 100,
+	WalkSpeed = 16,
+	PlayerESP = false,
+	NPCESP = false,
+	PlayerESPColor = Color3.fromRGB(239, 68, 68),
+	NPCESPColor = Color3.fromRGB(245, 158, 11),
+}
+
+local isBindingKey = false
+local keysPressed = {W = false, A = false, S = false, D = false, Space = false, Shift = false}
+
+--------------------------------------------------------------------------------
+-- 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+--------------------------------------------------------------------------------
+local function getNPCs()
+	local npcs = {}
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("Model") and obj ~= LocalPlayer.Character then
+			local hum = obj:FindFirstChildOfClass("Humanoid")
+			local hrp = obj:FindFirstChild("HumanoidRootPart")
+			if hum and hrp and hum.Health > 0 then
+				if not Players:GetPlayerFromCharacter(obj) then
+					table.insert(npcs, obj)
+				end
+			end
+		end
+	end
+	return npcs
+end
+
+local function getNearestNPC()
+	local myChar = LocalPlayer.Character
+	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+	local myPos = myChar.HumanoidRootPart.Position
+
+	local npcs = getNPCs()
+	local nearestNPC = nil
+	local minDistance = math.huge
+
+	for _, npc in ipairs(npcs) do
+		local hrp = npc:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local dist = (hrp.Position - myPos).Magnitude
+			if dist < minDistance then
+				minDistance = dist
+				nearestNPC = npc
+			end
+		end
+	end
+	return nearestNPC
+end
+
+-- Функция атаки (удары руками на ЛКМ или оружием без физической мыши)
+local function doLMBAttack()
+	local myChar = LocalPlayer.Character
+	if not myChar then return end
+
+	-- 1. Экипировка предмета (если есть в инвентаре)
+	local tool = myChar:FindFirstChildOfClass("Tool")
+	if not tool then
+		local backpack = LocalPlayer:FindFirstChild("Backpack")
+		if backpack then
+			tool = backpack:FindFirstChildOfClass("Tool")
+			local hum = myChar:FindFirstChildOfClass("Humanoid")
+			if tool and hum then
+				hum:EquipTool(tool)
+			end
+		end
+	end
+
+	-- Активация инструмента
+	if tool then
+		tool:Activate()
+	end
+
+	-- 2. Виртуальное нажатие ЛКМ (для ударов руками / кулаками)
+	pcall(function()
+		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+		task.wait(0.01)
+		VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+	end)
+end
+
+-- Виртуальное нажатие клавиши навыка
+local function pressVirtualKey(keyCode)
+	pcall(function()
+		VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+		task.wait(0.02)
+		VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+	end)
+end
+
+-- Защита от касаний НПС
+local function updateGodMode()
+	local char = LocalPlayer.Character
+	if not char then return end
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanTouch = not Settings.GodMode
+		end
+	end
+end
+
+--------------------------------------------------------------------------------
+-- 3. ЦИКЛ АВТОФАРМА И КИЛЛАУРЫ
+--------------------------------------------------------------------------------
+-- Цикл Автофарма над НПС в воздухе (Авто-удар руками / ЛКМ)
+task.spawn(function()
+	while true do
+		task.wait(0.05)
+		if Settings.AutoFarm then
+			local target = getNearestNPC()
+			local myChar = LocalPlayer.Character
+			if target and myChar and myChar:FindFirstChild("HumanoidRootPart") then
+				local myHrp = myChar.HumanoidRootPart
+				local targetHrp = target:FindFirstChild("HumanoidRootPart")
+
+				if targetHrp then
+					-- Зависание над НПС
+					local targetPos = targetHrp.Position + Vector3.new(0, Settings.FarmHeight, 0)
+					myHrp.CFrame = CFrame.lookAt(targetPos, targetHrp.Position)
+					myHrp.AssemblyLinearVelocity = Vector3.zero
+
+					-- Автоматический удар руками на ЛКМ (без клавиши 1)
+					doLMBAttack()
+
+					-- Навыки R и K (если включены в настройках)
+					if Settings.KillAuraKeyR then pressVirtualKey(Enum.KeyCode.R) end
+					if Settings.KillAuraKeyK then pressVirtualKey(Enum.KeyCode.K) end
+				end
+			end
+		end
+	end
+end)
+
+-- Автоматический цикл Киллауры
+task.spawn(function()
+	while true do
+		task.wait(0.08)
+		if Settings.KillAura and not Settings.AutoFarm then
+			local target = getNearestNPC()
+			if target then
+				local myChar = LocalPlayer.Character
+				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+				local targetHrp = target:FindFirstChild("HumanoidRootPart")
+
+				if myHrp and targetHrp then
+					local dist = (targetHrp.Position - myHrp.Position).Magnitude
+					if dist <= Settings.KillAuraRange then
+						if Settings.KillAuraAutoAim then
+							local lookTarget = Vector3.new(targetHrp.Position.X, myHrp.Position.Y, targetHrp.Position.Z)
+							myHrp.CFrame = CFrame.lookAt(myHrp.Position, lookTarget)
+						end
+
+						-- Автоматический удар руками на ЛКМ
+						doLMBAttack()
+
+						if Settings.KillAuraKeyR then pressVirtualKey(Enum.KeyCode.R) end
+						if Settings.KillAuraKeyK then pressVirtualKey(Enum.KeyCode.K) end
+					end
+				end
+			end
+		end
+	end
+end)
+
+--------------------------------------------------------------------------------
+-- 4. ПОЛЕТ И ESP
+--------------------------------------------------------------------------------
+local flyBV, flyBG
+
+local function startFly()
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hrp or not hum then return end
+
+	hum.PlatformStand = true
+
+	flyBV = Instance.new("BodyVelocity")
+	flyBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+	flyBV.Velocity = Vector3.zero
+	flyBV.Parent = hrp
+
+	flyBG = Instance.new("BodyGyro")
+	flyBG.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+	flyBG.P = 9e4
+	flyBG.CFrame = hrp.CFrame
+	flyBG.Parent = hrp
+end
+
+local function stopFly()
+	local char = LocalPlayer.Character
+	if char then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = false end
+	end
+	if flyBV then flyBV:Destroy() flyBV = nil end
+	if flyBG then flyBG:Destroy() flyBG = nil end
+end
+
+RunService.RenderStepped:Connect(function()
+	if Settings.FlyActive and flyBV and flyBG then
+		local camera = workspace.CurrentCamera
+		local moveDir = Vector3.zero
+
+		if keysPressed.W then moveDir = moveDir + camera.CFrame.LookVector end
+		if keysPressed.S then moveDir = moveDir - camera.CFrame.LookVector end
+		if keysPressed.A then moveDir = moveDir - camera.CFrame.RightVector end
+		if keysPressed.D then moveDir = moveDir + camera.CFrame.RightVector end
+		if keysPressed.Space then moveDir = moveDir + Vector3.new(0, 1, 0) end
+		if keysPressed.Shift then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+		if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
+
+		flyBV.Velocity = moveDir * Settings.FlySpeed
+		flyBG.CFrame = camera.CFrame
+	end
+end)
+
+local function applyHighlight(model, color, tag)
+	if not model then return end
+	local existing = model:FindFirstChild(tag)
+	if existing then existing:Destroy() end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = tag
+	highlight.FillColor = color
+	highlight.FillTransparency = 0.4
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Adornee = model
+	highlight.Parent = model
+end
+
+local function removeHighlight(model, tag)
+	if model and model:FindFirstChild(tag) then
+		model[tag]:Destroy()
+	end
+end
+
+local function updatePlayerESP()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character then
+			if Settings.PlayerESP then
+				applyHighlight(p.Character, Settings.PlayerESPColor, "PlayerESP")
+			else
+				removeHighlight(p.Character, "PlayerESP")
+			end
+		end
+	end
+end
+
+local function updateNPCESP()
+	local npcs = getNPCs()
+	for _, npc in ipairs(npcs) do
+		if Settings.NPCESP then
+			applyHighlight(npc, Settings.NPCESPColor, "NPCESP")
+		else
+			removeHighlight(npc, "NPCESP")
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if Settings.PlayerESP then updatePlayerESP() end
+		if Settings.NPCESP then updateNPCESP() end
+	end
+end)
+
+--------------------------------------------------------------------------------
+-- 5. ИНТЕРФЕЙС UI
+--------------------------------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FarmilkaCNSD_Custom"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = PlayerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 480, 0, 350)
+mainFrame.Position = UDim2.new(0.5, -240, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(Settings.BgColorR, Settings.BgColorG, Settings.BgColorB)
+mainFrame.BackgroundTransparency = Settings.BgTransparency
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner"); mainCorner.CornerRadius = UDim.new(0, 14); mainCorner.Parent = mainFrame
+local mainStroke = Instance.new("UIStroke"); mainStroke.Color = Color3.fromRGB(50, 50, 75); mainStroke.Thickness = 1.5; mainStroke.Parent = mainFrame
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 42)
+titleBar.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+titleBar.BackgroundTransparency = 0.2
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, -110, 1, 0)
+titleText.Position = UDim2.new(0, 14, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "🌾 фармилка cnsd [v3.1]"
+titleText.TextColor3 = Color3.fromRGB(240, 240, 255)
+titleText.TextSize = 14
+titleText.Font = Enum.Font.GothamBold
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleBar
+
+local hideBtn = Instance.new("TextButton")
+hideBtn.Size = UDim2.new(0, 28, 0, 28)
+hideBtn.Position = UDim2.new(1, -68, 0, 7)
+hideBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+hideBtn.Text = "─"
+hideBtn.TextColor3 = Color3.fromRGB(200, 200, 220)
+hideBtn.Font = Enum.Font.GothamBold
+hideBtn.TextSize = 12
+hideBtn.Parent = titleBar
+local hideCorner = Instance.new("UICorner"); hideCorner.CornerRadius = UDim.new(0, 8); hideCorner.Parent = hideBtn
+
+hideBtn.MouseButton1Click:Connect(function()
+	mainFrame.Visible = false
+end)
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 28, 0, 28)
+closeBtn.Position = UDim2.new(1, -35, 0, 7)
+closeBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 12
+closeBtn.Parent = titleBar
+local closeCorner = Instance.new("UICorner"); closeCorner.CornerRadius = UDim.new(0, 8); closeCorner.Parent = closeBtn
+
+closeBtn.MouseButton1Click:Connect(function()
+	screenGui:Destroy()
+end)
+
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 125, 1, -42)
+sidebar.Position = UDim2.new(0, 0, 0, 42)
+sidebar.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+sidebar.BackgroundTransparency = 0.3
+sidebar.BorderSizePixel = 0
+sidebar.Parent = mainFrame
+
+local sidebarList = Instance.new("UIListLayout")
+sidebarList.SortOrder = Enum.SortOrder.LayoutOrder
+sidebarList.Padding = UDim.new(0, 5)
+sidebarList.Parent = sidebar
+
+local sidebarPadding = Instance.new("UIPadding")
+sidebarPadding.PaddingTop = UDim.new(0, 8)
+sidebarPadding.PaddingLeft = UDim.new(0, 6)
+sidebarPadding.PaddingRight = UDim.new(0, 6)
+sidebarPadding.Parent = sidebar
+
+local pagesFolder = Instance.new("Frame")
+pagesFolder.Size = UDim2.new(1, -133, 1, -50)
+pagesFolder.Position = UDim2.new(0, 129, 0, 46)
+pagesFolder.BackgroundTransparency = 1
+pagesFolder.Parent = mainFrame
+
+--------------------------------------------------------------------------------
+-- 6. UI КОМПОНЕНТЫ И ВКЛАДКИ
+--------------------------------------------------------------------------------
+local tabButtons = {}
+local pages = {}
+local activePage = nil
+
+local function updateMainStyle()
+	mainFrame.BackgroundColor3 = Color3.fromRGB(Settings.BgColorR, Settings.BgColorG, Settings.BgColorB)
+	mainFrame.BackgroundTransparency = Settings.BgTransparency
+end
+
+local function createTab(name, icon, layoutOrder)
+	local page = Instance.new("CanvasGroup")
+	page.Name = name .. "Page"
+	page.Size = UDim2.new(1, 0, 1, 0)
+	page.BackgroundTransparency = 1
+	page.GroupTransparency = 1
+	page.Visible = false
+	page.Parent = pagesFolder
+
+	local scrollContainer = Instance.new("ScrollingFrame")
+	scrollContainer.Size = UDim2.new(1, 0, 1, 0)
+	scrollContainer.BackgroundTransparency = 1
+	scrollContainer.BorderSizePixel = 0
+	scrollContainer.ScrollBarThickness = 3
+	scrollContainer.ScrollBarImageColor3 = Color3.fromRGB(124, 58, 237)
+	scrollContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scrollContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scrollContainer.Parent = page
+
+	local pageList = Instance.new("UIListLayout")
+	pageList.SortOrder = Enum.SortOrder.LayoutOrder
+	pageList.Padding = UDim.new(0, 6)
+	pageList.Parent = scrollContainer
+
+	local tabBtn = Instance.new("TextButton")
+	tabBtn.Size = UDim2.new(1, 0, 0, 32)
+	tabBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+	tabBtn.Text = icon .. " " .. name
+	tabBtn.TextColor3 = Color3.fromRGB(150, 150, 175)
+	tabBtn.Font = Enum.Font.GothamMedium
+	tabBtn.TextSize = 11
+	tabBtn.LayoutOrder = layoutOrder
+	tabBtn.Parent = sidebar
+
+	local btnCorner = Instance.new("UICorner"); btnCorner.CornerRadius = UDim.new(0, 8); btnCorner.Parent = tabBtn
+
+	tabBtn.MouseButton1Click:Connect(function()
+		if activePage == page then return end
+
+		for _, b in ipairs(tabButtons) do
+			TweenService:Create(b, TweenInfo.new(0.2), {
+				BackgroundColor3 = Color3.fromRGB(22, 22, 32),
+				TextColor3 = Color3.fromRGB(150, 150, 175)
+			}):Play()
+		end
+
+		TweenService:Create(tabBtn, TweenInfo.new(0.2), {
+			BackgroundColor3 = Color3.fromRGB(124, 58, 237),
+			TextColor3 = Color3.fromRGB(255, 255, 255)
+		}):Play()
+
+		if activePage then
+			local oldPage = activePage
+			TweenService:Create(oldPage, TweenInfo.new(0.15), {
+				GroupTransparency = 1,
+				Position = UDim2.new(0, -10, 0, 0)
+			}):Play()
+			task.delay(0.15, function() oldPage.Visible = false end)
+		end
+
+		activePage = page
+		page.Position = UDim2.new(0, 10, 0, 0)
+		page.Visible = true
+		TweenService:Create(page, TweenInfo.new(0.2), {
+			GroupTransparency = 0,
+			Position = UDim2.new(0, 0, 0, 0)
+		}):Play()
+	end)
+
+	table.insert(tabButtons, tabBtn)
+	table.insert(pages, page)
+
+	return scrollContainer
+end
+
+local function createToggle(parentPage, text, defaultState, onClick)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -6, 0, 34)
+	btn.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	btn.AutoButtonColor = false
+	btn.Text = ""
+	btn.Parent = parentPage
+
+	local btnCorner = Instance.new("UICorner"); btnCorner.CornerRadius = UDim.new(0, 8); btnCorner.Parent = btn
+	local btnStroke = Instance.new("UIStroke"); btnStroke.Color = Color3.fromRGB(35, 35, 52); btnStroke.Parent = btn
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -50, 1, 0)
+	label.Position = UDim2.new(0, 10, 0, 0)
+	label.BackgroundTransparency = 1
+	label.Text = text
+	label.TextColor3 = Color3.fromRGB(220, 220, 240)
+	label.TextSize = 11
+	label.Font = Enum.Font.GothamMedium
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = btn
+
+	local switchTrack = Instance.new("Frame")
+	switchTrack.Size = UDim2.new(0, 36, 0, 18)
+	switchTrack.Position = UDim2.new(1, -44, 0.5, -9)
+	switchTrack.BackgroundColor3 = defaultState and Color3.fromRGB(124, 58, 237) or Color3.fromRGB(40, 40, 55)
+	switchTrack.Parent = btn
+
+	local trackCorner = Instance.new("UICorner"); trackCorner.CornerRadius = UDim.new(0, 10); trackCorner.Parent = switchTrack
+
+	local switchDot = Instance.new("Frame")
+	switchDot.Size = UDim2.new(0, 14, 0, 14)
+	switchDot.Position = defaultState and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+	switchDot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	switchDot.Parent = switchTrack
+
+	local dotCorner = Instance.new("UICorner"); dotCorner.CornerRadius = UDim.new(1, 0); dotCorner.Parent = switchDot
+
+	local currentState = defaultState
+	btn.MouseButton1Click:Connect(function()
+		currentState = not currentState
+		TweenService:Create(switchTrack, TweenInfo.new(0.2), {
+			BackgroundColor3 = currentState and Color3.fromRGB(124, 58, 237) or Color3.fromRGB(40, 40, 55)
+		}):Play()
+
+		TweenService:Create(switchDot, TweenInfo.new(0.2), {
+			Position = currentState and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+		}):Play()
+
+		onClick(currentState)
+	end)
+end
+
+local function createSliderWithInput(parentPage, labelText, defaultVal, minVal, maxVal, onChange)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, -6, 0, 48)
+	frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	frame.Parent = parentPage
+
+	local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 8); corner.Parent = frame
+	local stroke = Instance.new("UIStroke"); stroke.Color = Color3.fromRGB(35, 35, 52); stroke.Parent = frame
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(0, 140, 0, 20)
+	title.Position = UDim2.new(0, 10, 0, 4)
+	title.BackgroundTransparency = 1
+	title.Text = labelText
+	title.TextColor3 = Color3.fromRGB(220, 220, 240)
+	title.Font = Enum.Font.GothamMedium
+	title.TextSize = 11
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = frame
+
+	local valueBox = Instance.new("TextBox")
+	valueBox.Size = UDim2.new(0, 55, 0, 18)
+	valueBox.Position = UDim2.new(1, -65, 0, 4)
+	valueBox.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+	valueBox.Text = tostring(defaultVal)
+	valueBox.TextColor3 = Color3.fromRGB(180, 210, 255)
+	valueBox.Font = Enum.Font.GothamBold
+	valueBox.TextSize = 10
+	valueBox.ClearTextOnFocus = false
+	valueBox.Parent = frame
+
+	local boxCorner = Instance.new("UICorner"); boxCorner.CornerRadius = UDim.new(0, 5); boxCorner.Parent = valueBox
+
+	local sliderBg = Instance.new("Frame")
+	sliderBg.Size = UDim2.new(1, -20, 0, 5)
+	sliderBg.Position = UDim2.new(0, 10, 0, 30)
+	sliderBg.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+	sliderBg.Parent = frame
+
+	local sliderCorner = Instance.new("UICorner"); sliderCorner.CornerRadius = UDim.new(0, 3); sliderCorner.Parent = sliderBg
+
+	local sliderFill = Instance.new("Frame")
+	local startRel = (defaultVal - minVal) / (maxVal - minVal)
+	sliderFill.Size = UDim2.new(math.clamp(startRel, 0, 1), 0, 1, 0)
+	sliderFill.BackgroundColor3 = Color3.fromRGB(124, 58, 237)
+	sliderFill.Parent = sliderBg
+
+	local dragging = false
+
+	local function updateVal(val, updateInput)
+		val = math.clamp(math.floor(val + 0.5), minVal, maxVal)
+		local rel = (val - minVal) / (maxVal - minVal)
+		TweenService:Create(sliderFill, TweenInfo.new(0.05), {Size = UDim2.new(rel, 0, 1, 0)}):Play()
+		if updateInput then valueBox.Text = tostring(val) end
+		onChange(val)
+	end
+
+	local function updateFromMouse(input)
+		local pos = input.Position.X
+		local absPos = sliderBg.AbsolutePosition.X
+		local absSize = sliderBg.AbsoluteSize.X
+		local rel = math.clamp((pos - absPos) / absSize, 0, 1)
+		local val = minVal + rel * (maxVal - minVal)
+		updateVal(val, true)
+	end
+
+	sliderBg.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			updateFromMouse(input)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			updateFromMouse(input)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	valueBox.FocusLost:Connect(function()
+		local num = tonumber(valueBox.Text)
+		if num then updateVal(num, true) else valueBox.Text = tostring(defaultVal) end
+	end)
+end
+
+--------------------------------------------------------------------------------
+-- 7. ВКЛАДКИ И НАСТРОЙКИ
+--------------------------------------------------------------------------------
+local farmPage = createTab("Автофарм", "🌾", 1)
+local attackPage = createTab("Киллаура", "⚔️", 2)
+local movementPage = createTab("Movement", "🏃", 3)
+local visualPage = createTab("Кастомизация UI", "🎨", 4)
+local keybindPage = createTab("Keybind", "⌨️", 5)
+
+-- ВКЛАДКА 1: АВТОФАРМ
+createToggle(farmPage, "🌾 Автофарм (Удары руками на ЛКМ)", Settings.AutoFarm, function(state) Settings.AutoFarm = state end)
+createSliderWithInput(farmPage, "Высота над НПС (студы)", Settings.FarmHeight, 4, 30, function(v) Settings.FarmHeight = v end)
+createToggle(farmPage, "🛡️ Полный GodMode (НПС не бьют)", Settings.GodMode, function(state)
+	Settings.GodMode = state
+	updateGodMode()
+end)
+
+-- ВКЛАДКА 2: КИЛЛАУРА
+createToggle(attackPage, "⚔️ Киллаура (Авто-атака)", Settings.KillAura, function(state) Settings.KillAura = state end)
+createToggle(attackPage, "🎯 Авто-наведение", Settings.KillAuraAutoAim, function(state) Settings.KillAuraAutoAim = state end)
+createSliderWithInput(attackPage, "Радиус Киллауры", Settings.KillAuraRange, 5, 200, function(v) Settings.KillAuraRange = v end)
+createToggle(attackPage, "🔤 Нажимать клавишу [R]", Settings.KillAuraKeyR, function(state) Settings.KillAuraKeyR = state end)
+createToggle(attackPage, "⚡ Нажимать клавишу [K]", Settings.KillAuraKeyK, function(state) Settings.KillAuraKeyK = state end)
+
+-- ВКЛАДКА 3: MOVEMENT & ESP
+createToggle(movementPage, "🕊️ Режим Полета (Fly)", Settings.FlyActive, function(state)
+	Settings.FlyActive = state
+	if state then startFly() else stopFly() end
+end)
+createSliderWithInput(movementPage, "Скорость Fly", Settings.FlySpeed, 10, 1000, function(v) Settings.FlySpeed = v end)
+createSliderWithInput(movementPage, "Скорость Бега", Settings.WalkSpeed, 16, 500, function(v) Settings.WalkSpeed = v end)
+createToggle(movementPage, "🔴 ESP Игроки", Settings.PlayerESP, function(state) Settings.PlayerESP = state; updatePlayerESP() end)
+createToggle(movementPage, "🟠 ESP НПС", Settings.NPCESP, function(state) Settings.NPCESP = state; updateNPCESP() end)
+
+-- ВКЛАДКА 4: КАСТОМИЗАЦИЯ UI
+createToggle(visualPage, "🖥️ Полноэкранное меню", Settings.IsFullscreen, function(state)
+	Settings.IsFullscreen = state
+	if state then
+		TweenService:Create(mainFrame, TweenInfo.new(0.3), {
+			Size = UDim2.new(1, 0, 1, 0),
+			Position = UDim2.new(0, 0, 0, 0)
+		}):Play()
+	else
+		TweenService:Create(mainFrame, TweenInfo.new(0.3), {
+			Size = UDim2.new(0, 480, 0, 350),
+			Position = UDim2.new(0.5, -240, 0.3, 0)
+		}):Play()
+	end
+end)
+
+createSliderWithInput(visualPage, "Фон: Красный (R)", Settings.BgColorR, 0, 255, function(v)
+	Settings.BgColorR = v
+	updateMainStyle()
+end)
+
+createSliderWithInput(visualPage, "Фон: Зеленый (G)", Settings.BgColorG, 0, 255, function(v)
+	Settings.BgColorG = v
+	updateMainStyle()
+end)
+
+createSliderWithInput(visualPage, "Фон: Синий (B)", Settings.BgColorB, 0, 255, function(v)
+	Settings.BgColorB = v
+	updateMainStyle()
+end)
+
+createSliderWithInput(visualPage, "Прозрачность фона %", Settings.BgTransparency * 100, 0, 90, function(v)
+	Settings.BgTransparency = v / 100
+	updateMainStyle()
+end)
+
+-- ВКЛАДКА 5: KEYBIND
+local bindControl = Instance.new("Frame")
+bindControl.Size = UDim2.new(1, -6, 0, 36)
+bindControl.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+bindControl.Parent = keybindPage
+
+local bindCorner = Instance.new("UICorner"); bindCorner.CornerRadius = UDim.new(0, 8); bindCorner.Parent = bindControl
+
+local bindLabel = Instance.new("TextLabel")
+bindLabel.Size = UDim2.new(0, 120, 1, 0)
+bindLabel.Position = UDim2.new(0, 10, 0, 0)
+bindLabel.BackgroundTransparency = 1
+bindLabel.Text = "Скрыть/Открыть меню:"
+bindLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+bindLabel.Font = Enum.Font.GothamMedium
+bindLabel.TextSize = 11
+bindLabel.TextXAlignment = Enum.TextXAlignment.Left
+bindLabel.Parent = bindControl
+
+local keybindBtn = Instance.new("TextButton")
+keybindBtn.Size = UDim2.new(0, 110, 0, 24)
+keybindBtn.Position = UDim2.new(1, -115, 0.5, -12)
+keybindBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+keybindBtn.Text = Settings.MenuKey.Name
+keybindBtn.TextColor3 = Color3.fromRGB(180, 210, 255)
+keybindBtn.Font = Enum.Font.GothamBold
+keybindBtn.TextSize = 11
+keybindBtn.Parent = bindControl
+
+local keyCorner = Instance.new("UICorner"); keyCorner.CornerRadius = UDim.new(0, 6); keyCorner.Parent = keybindBtn
+
+keybindBtn.MouseButton1Click:Connect(function()
+	isBindingKey = true
+	keybindBtn.Text = "...Нажми клавишу..."
+	keybindBtn.TextColor3 = Color3.fromRGB(255, 200, 100)
+end)
+
+-- Открытие первой вкладки
+tabButtons[1].BackgroundColor3 = Color3.fromRGB(124, 58, 237)
+tabButtons[1].TextColor3 = Color3.fromRGB(255, 255, 255)
+pages[1].GroupTransparency = 0
+pages[1].Position = UDim2.new(0, 0, 0, 0)
+pages[1].Visible = true
+activePage = pages[1]
+
+--------------------------------------------------------------------------------
+-- 8. ИВЕНТЫ ВВОДА И ТАКТЫ
+--------------------------------------------------------------------------------
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if isBindingKey then
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			Settings.MenuKey = input.KeyCode
+			keybindBtn.Text = input.KeyCode.Name
+			keybindBtn.TextColor3 = Color3.fromRGB(180, 210, 255)
+			isBindingKey = false
+		end
+		return
+	end
+
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		if input.KeyCode == Enum.KeyCode.W then keysPressed.W = true end
+		if input.KeyCode == Enum.KeyCode.S then keysPressed.S = true end
+		if input.KeyCode == Enum.KeyCode.A then keysPressed.A = true end
+		if input.KeyCode == Enum.KeyCode.D then keysPressed.D = true end
+		if input.KeyCode == Enum.KeyCode.Space then keysPressed.Space = true end
+		if input.KeyCode == Enum.KeyCode.LeftShift then keysPressed.Shift = true end
+
+		if not gameProcessed and input.KeyCode == Settings.MenuKey then
+			mainFrame.Visible = not mainFrame.Visible
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		if input.KeyCode == Enum.KeyCode.W then keysPressed.W = false end
+		if input.KeyCode == Enum.KeyCode.S then keysPressed.S = false end
+		if input.KeyCode == Enum.KeyCode.A then keysPressed.A = false end
+		if input.KeyCode == Enum.KeyCode.D then keysPressed.D = false end
+		if input.KeyCode == Enum.KeyCode.Space then keysPressed.Space = false end
+		if input.KeyCode == Enum.KeyCode.LeftShift then keysPressed.Shift = false end
+	end
+end)
+
+RunService.Stepped:Connect(function()
+	local char = LocalPlayer.Character
+	if char then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.WalkSpeed ~= Settings.WalkSpeed then
+			hum.WalkSpeed = Settings.WalkSpeed
+		end
+	end
+
+	if Settings.GodMode then
+		updateGodMode()
+	end
+end)
+
+-- Перетаскивание UI
+local dragging, dragStart, startPos
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not Settings.IsFullscreen then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then dragging = false end
+		end)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement and not Settings.IsFullscreen then
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
